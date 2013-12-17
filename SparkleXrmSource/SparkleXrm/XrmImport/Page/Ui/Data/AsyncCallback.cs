@@ -8,7 +8,7 @@ namespace Xrm
     {
 
         /// <summary>
-        /// Exposes optional callback functions to be executed after an async operation is completed.  
+        /// CRM2013 Only: Exposes optional callback functions to be executed after an async operation is completed.  
         /// Save and Refresh functions
         /// </summary>
         /// <param name="SuccessCallbackHandler">A function to call when the operation succeeds</param>

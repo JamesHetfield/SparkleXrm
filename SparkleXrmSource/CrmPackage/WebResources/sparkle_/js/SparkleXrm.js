@@ -148,7 +148,7 @@ Xrm.NumberEx.format = function Xrm_NumberEx$format(value, format) {
     var formattedNumber = '';
     var wholeNumber = Math.floor(Math.abs(value));
     var wholeNumberString = wholeNumber.toString();
-    var decimalPartString = value.toString().substr(wholeNumberString.length + 1);
+    var decimalPartString = value.toString().substr(wholeNumberString.length + 1 + ((value < 0) ? 1 : 0));
     var i = wholeNumberString.length;
     var j = 0;
     while (i > 0) {
@@ -206,7 +206,7 @@ Xrm.NumberEx.getCurrencySymbol = function Xrm_NumberEx$getCurrencySymbol(currenc
     var orgSettings = Xrm.Services.CachedOrganizationService.retrieveMultiple("<fetch distinct='false' no-lock='false' mapping='logical'><entity name='organization'><attribute name='currencydisplayoption' /><attribute name='currencysymbol' /></entity></fetch>");
     var orgSetting = orgSettings.get_entities().get_item(0);
     var currency = Xrm.Services.CachedOrganizationService.retrieve('transactioncurrency', currencyId.toString(), [ 'currencysymbol', 'isocurrencycode' ]);
-    if (!orgSetting.getAttributeValueInt('currencydisplayoption')) {
+    if (!orgSetting.getAttributeValueOptionSet('currencydisplayoption').value) {
         return currency.getAttributeValueString('currencysymbol') + ' ';
     }
     else {
@@ -285,7 +285,7 @@ Xrm.TabItem.prototype = {
     sections: null,
     
     getDisplayState: function Xrm_TabItem$getDisplayState() {
-        return null;
+        return 'expanded';
     },
     
     getLabel: function Xrm_TabItem$getLabel() {
@@ -438,6 +438,9 @@ Xrm.Sdk.Attribute.deSerialise = function Xrm_Sdk_Attribute$deSerialise(node, ove
             case 'Money':
                 value = new Xrm.Sdk.Money(parseFloat(Xrm.Sdk.XmlHelper.selectSingleNodeValue(node, 'Value')));
                 break;
+            case 'EntityCollection':
+                value = Xrm.Sdk.EntityCollection.deSerialise(node);
+                break;
             default:
                 value = stringValue;
                 break;
@@ -539,18 +542,7 @@ Xrm.Sdk.Attribute.serialiseValue = function Xrm_Sdk_Attribute$serialiseValue(val
             break;
         case 'EntityCollection':
             valueXml += '<b:value i:type="' + Xrm.Sdk.Attribute._addNsPrefix(typeName) + '">';
-            if (Type.getInstanceType(value) !== Array) {
-                throw new Error("An attribute value of type 'EntityCollection' must contain an Array() of Entity instances");
-            }
-            var arrayValue = Type.safeCast(value, Array);
-            valueXml += '<a:Entities>';
-            for (var i = 0; i < arrayValue.length; i++) {
-                if (Type.getInstanceType(arrayValue[i]) !== Xrm.Sdk.Entity) {
-                    throw new Error("An attribute value of type 'EntityCollection' must contain an Array() of Entity instances");
-                }
-                valueXml += (arrayValue[i]).serialise(false);
-            }
-            valueXml += '</a:Entities>';
+            valueXml += Xrm.Sdk.EntityCollection.serialise(value);
             valueXml += '</b:value>';
             break;
         case 'Money':
@@ -780,6 +772,9 @@ Xrm.Sdk.DateTimeEx.formatDuration = function Xrm_Sdk_DateTimeEx$formatDuration(t
             Xrm.ArrayEx.add(formatString, '{1}h');
         }
         if (minutes > 0) {
+            Xrm.ArrayEx.add(formatString, '{2}m');
+        }
+        if (!days && !hours && !minutes) {
             Xrm.ArrayEx.add(formatString, '{2}m');
         }
         return String.format(Xrm.ArrayEx.join(formatString, ' '), days, hours, minutes);
@@ -1243,6 +1238,33 @@ Xrm.Sdk.Entity.prototype = {
 
 Xrm.Sdk.EntityCollection = function Xrm_Sdk_EntityCollection(entities) {
     this._entities = new Xrm.Sdk.DataCollectionOfEntity(entities);
+}
+Xrm.Sdk.EntityCollection.serialise = function Xrm_Sdk_EntityCollection$serialise(value) {
+    var valueXml = '';
+    if (Type.getInstanceType(value) !== Xrm.Sdk.EntityCollection) {
+        throw new Error("An attribute value of type 'EntityCollection' must contain an EntityCollection instance");
+    }
+    var arrayValue = Type.safeCast(value, Xrm.Sdk.EntityCollection);
+    valueXml += '<a:Entities>';
+    for (var i = 0; i < arrayValue._entities.get_count(); i++) {
+        valueXml += (arrayValue.get_item(i)).serialise(false);
+    }
+    valueXml += '</a:Entities>';
+    return valueXml;
+}
+Xrm.Sdk.EntityCollection.deSerialise = function Xrm_Sdk_EntityCollection$deSerialise(node) {
+    var entities = [];
+    var collection = new Xrm.Sdk.EntityCollection(entities);
+    collection.set_entityName(Xrm.Sdk.XmlHelper.selectSingleNodeValue(node, 'EntityName'));
+    var entitiesNode = Xrm.Sdk.XmlHelper.selectSingleNodeDeep(node, 'Entities');
+    var $enum1 = ss.IEnumerator.getEnumerator(entitiesNode.childNodes);
+    while ($enum1.moveNext()) {
+        var entityNode = $enum1.current;
+        var entity = new Xrm.Sdk.Entity(collection.get_entityName());
+        entity.deSerialise(entityNode);
+        Xrm.ArrayEx.add(entities, entity);
+    }
+    return collection;
 }
 Xrm.Sdk.EntityCollection.prototype = {
     _entities: null,
@@ -1719,6 +1741,8 @@ Xrm.Sdk.OrganizationServiceProxy.endExecute = function Xrm_Sdk_OrganizationServi
                 return new Xrm.Sdk.Messages.FetchXmlToQueryExpressionResponse(response);
             case 'RetrieveMetadataChanges':
                 return new Xrm.Sdk.Messages.RetrieveMetadataChangesResponse(response);
+            case 'RetrieveRelationship':
+                return new Xrm.Sdk.RetrieveRelationshipResponse(response);
         }
         return null;
     }
@@ -1731,17 +1755,22 @@ Xrm.Sdk.OrganizationServiceProxy._getSoapEnvelope = function Xrm_Sdk_Organizatio
     return xml;
 }
 Xrm.Sdk.OrganizationServiceProxy._getServerUrl = function Xrm_Sdk_OrganizationServiceProxy$_getServerUrl() {
-    var context = Xrm.Page.context;
-    var crmServerUrl;
-    if (context.isOutlookClient() && !context.isOutlookOnline()) {
-        crmServerUrl = window.location.protocol + '//' + window.location.hostname;
+    if (typeof(Xrm.Page.context.getServerUrl) === 'undefined') {
+        var context = Xrm.Page.context;
+        var crmServerUrl;
+        if (context.isOutlookClient() && !context.isOutlookOnline()) {
+            crmServerUrl = window.location.protocol + '//' + window.location.hostname;
+        }
+        else {
+            crmServerUrl = Xrm.Page.context.getServerUrl();
+            crmServerUrl = crmServerUrl.replace(new RegExp('/^(http|https):\\/\\/([_a-zA-Z0-9\\-\\.]+)(:([0-9]{1,5}))?/'), window.location.protocol + '//' + window.location.hostname);
+            crmServerUrl = crmServerUrl.replace(new RegExp('/\\/$/'), '');
+        }
+        return crmServerUrl;
     }
     else {
-        crmServerUrl = Xrm.Page.context.getServerUrl();
-        crmServerUrl = crmServerUrl.replace(new RegExp('/^(http|https):\\/\\/([_a-zA-Z0-9\\-\\.]+)(:([0-9]{1,5}))?/'), window.location.protocol + '//' + window.location.hostname);
-        crmServerUrl = crmServerUrl.replace(new RegExp('/\\/$/'), '');
+        return Xrm.Page.context.getServerUrl();
     }
-    return crmServerUrl;
 }
 Xrm.Sdk.OrganizationServiceProxy._getResponse = function Xrm_Sdk_OrganizationServiceProxy$_getResponse(soapXmlPacket, action, asyncCallback) {
     var isAsync = (asyncCallback != null);
@@ -1823,6 +1852,42 @@ Xrm.Sdk.Relationship = function Xrm_Sdk_Relationship(schemaName) {
 }
 Xrm.Sdk.Relationship.prototype = {
     schemaName: null
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Xrm.Sdk.RetrieveRelationshipRequest
+
+Xrm.Sdk.RetrieveRelationshipRequest = function Xrm_Sdk_RetrieveRelationshipRequest() {
+    this.metadataId = Xrm.Sdk.Guid.empty;
+}
+Xrm.Sdk.RetrieveRelationshipRequest.prototype = {
+    name: null,
+    retrieveAsIfPublished: false,
+    
+    serialise: function Xrm_Sdk_RetrieveRelationshipRequest$serialise() {
+        return '<request i:type="a:RetrieveRelationshipRequest" xmlns:a="http://schemas.microsoft.com/xrm/2011/Contracts">' + '<a:Parameters xmlns:b="http://schemas.datacontract.org/2004/07/System.Collections.Generic">' + '<a:KeyValuePairOfstringanyType>' + '<b:key>MetadataId</b:key>' + Xrm.Sdk.Attribute.serialiseValue(this.metadataId, null) + '</a:KeyValuePairOfstringanyType>' + '<a:KeyValuePairOfstringanyType>' + '<b:key>Name</b:key>' + Xrm.Sdk.Attribute.serialiseValue(this.name, null) + '</a:KeyValuePairOfstringanyType>' + '<a:KeyValuePairOfstringanyType>' + '<b:key>RetrieveAsIfPublished</b:key>' + Xrm.Sdk.Attribute.serialiseValue(this.retrieveAsIfPublished, null) + '</a:KeyValuePairOfstringanyType>' + '</a:Parameters>' + '<a:RequestId i:nil="true" />' + '<a:RequestName>RetrieveRelationship</a:RequestName>' + '</request>';
+    }
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Xrm.Sdk.RetrieveRelationshipResponse
+
+Xrm.Sdk.RetrieveRelationshipResponse = function Xrm_Sdk_RetrieveRelationshipResponse(response) {
+    var results = Xrm.Sdk.XmlHelper.selectSingleNode(response, 'Results');
+    var $enum1 = ss.IEnumerator.getEnumerator(results.childNodes);
+    while ($enum1.moveNext()) {
+        var nameValuePair = $enum1.current;
+        var key = Xrm.Sdk.XmlHelper.selectSingleNode(nameValuePair, 'key');
+        if (Xrm.Sdk.XmlHelper.getNodeTextValue(key) === 'RelationshipMetadata') {
+            var entity = Xrm.Sdk.XmlHelper.selectSingleNode(nameValuePair, 'value');
+            this.relationshipMetadata = Xrm.Sdk.Metadata.MetadataSerialiser.deSerialiseRelationshipMetadata(entity);
+        }
+    }
+}
+Xrm.Sdk.RetrieveRelationshipResponse.prototype = {
+    relationshipMetadata: null
 }
 
 
@@ -2319,6 +2384,18 @@ Xrm.Sdk.Metadata.OptionSetType.registerEnum('Xrm.Sdk.Metadata.OptionSetType', fa
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// Xrm.Sdk.Metadata.RelationshipType
+
+Xrm.Sdk.Metadata.RelationshipType = function() { };
+Xrm.Sdk.Metadata.RelationshipType.prototype = {
+    OneToManyRelationship: 'OneToManyRelationship', 
+    Default: 'Default', 
+    ManyToManyRelationship: 'ManyToManyRelationship'
+}
+Xrm.Sdk.Metadata.RelationshipType.registerEnum('Xrm.Sdk.Metadata.RelationshipType', false);
+
+
+////////////////////////////////////////////////////////////////////////////////
 // Xrm.Sdk.Metadata.StringFormat
 
 Xrm.Sdk.Metadata.StringFormat = function() { };
@@ -2496,6 +2573,53 @@ Xrm.Sdk.Metadata.MetadataSerialiser.deSerialiseLocalizedLabel = function Xrm_Sdk
     item.languageCode = parseInt(Xrm.Sdk.XmlHelper.selectSingleNodeValue(metaData, 'LanguageCode'));
     return item;
 }
+Xrm.Sdk.Metadata.MetadataSerialiser.deSerialiseRelationshipMetadata = function Xrm_Sdk_Metadata_MetadataSerialiser$deSerialiseRelationshipMetadata(attribute) {
+    var item;
+    var type = Xrm.Sdk.XmlHelper.getAttributeValue(attribute, 'i:type');
+    switch (type) {
+        case 'c:OneToManyRelationshipMetadata':
+            item = {};
+            break;
+        case 'c:ManyToManyRelationshipMetadata':
+            item = {};
+            break;
+        default:
+            throw new Error('Unknown relationship type');
+    }
+    var $enum1 = ss.IEnumerator.getEnumerator(attribute.childNodes);
+    while ($enum1.moveNext()) {
+        var node = $enum1.current;
+        var itemValues = item;
+        var localName = Xrm.Sdk.XmlHelper.getLocalName(node);
+        var fieldName = localName.substr(0, 1).toLowerCase() + localName.substr(1);
+        if (node.attributes.length === 1 && node.attributes[0].nodeName === 'i:nil') {
+            continue;
+        }
+        switch (localName) {
+            case 'SchemaName':
+            case 'ReferencedAttribute':
+            case 'ReferencedEntity':
+            case 'ReferencingAttribute':
+            case 'ReferencingEntity':
+            case 'Entity1IntersectAttribute':
+            case 'Entity1LogicalName':
+            case 'Entity2IntersectAttribute':
+            case 'Entity2LogicalName':
+            case 'IntersectEntityName':
+                itemValues[fieldName] = Xrm.Sdk.XmlHelper.getNodeTextValue(node);
+                break;
+            case 'IsCustomRelationship':
+            case 'IsManaged':
+            case 'IsValidForAdvancedFind':
+                itemValues[fieldName] = Xrm.Sdk.Attribute.deSerialise(node, 'boolean');
+                break;
+            case 'RelationshipType':
+                itemValues[fieldName] = Xrm.Sdk.XmlHelper.getNodeTextValue(node);
+                break;
+        }
+    }
+    return item;
+}
 Xrm.Sdk.Metadata.MetadataSerialiser.deSerialiseOptionMetadata = function Xrm_Sdk_Metadata_MetadataSerialiser$deSerialiseOptionMetadata(item, metaData) {
     item.value = parseInt(Xrm.Sdk.XmlHelper.selectSingleNodeValue(metaData, 'Value'));
     item.label = Xrm.Sdk.Metadata.MetadataSerialiser.deSerialiseLabel({}, Xrm.Sdk.XmlHelper.selectSingleNode(metaData, 'Label'));
@@ -2656,7 +2780,11 @@ Xrm.Sdk.Metadata.Query.MetadataSerialiser.serialiseAttributeQueryExpression = fu
 }
 Xrm.Sdk.Metadata.Query.MetadataSerialiser.serialiseEntityQueryExpression = function Xrm_Sdk_Metadata_Query_MetadataSerialiser$serialiseEntityQueryExpression(item) {
     if (item != null) {
-        var xml = "<b:value i:type='c:EntityQueryExpression' xmlns:c='http://schemas.microsoft.com/xrm/2011/Metadata/Query'>" + Xrm.Sdk.Metadata.Query.MetadataSerialiser.serialiseMetadataQueryExpression(item) + '<c:AttributeQuery>' + Xrm.Sdk.Metadata.Query.MetadataSerialiser.serialiseAttributeQueryExpression(item.attributeQuery) + '</c:AttributeQuery>\r\n                <c:LabelQuery>' + Xrm.Sdk.Metadata.Query.MetadataSerialiser.serialiseLabelQueryExpression(item.labelQuery) + "</c:LabelQuery>\r\n                <c:RelationshipQuery i:nil='true' />\r\n                </b:value>";
+        var xml = "<b:value i:type='c:EntityQueryExpression' xmlns:c='http://schemas.microsoft.com/xrm/2011/Metadata/Query'>" + Xrm.Sdk.Metadata.Query.MetadataSerialiser.serialiseMetadataQueryExpression(item);
+        if (item.attributeQuery != null) {
+            xml += '<c:AttributeQuery>' + Xrm.Sdk.Metadata.Query.MetadataSerialiser.serialiseAttributeQueryExpression(item.attributeQuery) + '</c:AttributeQuery>';
+        }
+        xml += '<c:LabelQuery>' + Xrm.Sdk.Metadata.Query.MetadataSerialiser.serialiseLabelQueryExpression(item.labelQuery) + "</c:LabelQuery>\r\n                <c:RelationshipQuery i:nil='true' />\r\n                </b:value>";
         return xml;
     }
     else {
@@ -2940,6 +3068,8 @@ Xrm.Sdk.Money.registerClass('Xrm.Sdk.Money');
 Xrm.Sdk.OptionSetValue.registerClass('Xrm.Sdk.OptionSetValue');
 Xrm.Sdk.OrganizationServiceProxy.registerClass('Xrm.Sdk.OrganizationServiceProxy');
 Xrm.Sdk.Relationship.registerClass('Xrm.Sdk.Relationship');
+Xrm.Sdk.RetrieveRelationshipRequest.registerClass('Xrm.Sdk.RetrieveRelationshipRequest', null, Object);
+Xrm.Sdk.RetrieveRelationshipResponse.registerClass('Xrm.Sdk.RetrieveRelationshipResponse', null, Object);
 Xrm.Sdk.XmlHelper.registerClass('Xrm.Sdk.XmlHelper');
 Xrm.Sdk.Messages.BulkDeleteRequest.registerClass('Xrm.Sdk.Messages.BulkDeleteRequest', null, Object);
 Xrm.Sdk.Messages.BulkDeleteResponse.registerClass('Xrm.Sdk.Messages.BulkDeleteResponse', null, Object);

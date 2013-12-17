@@ -3,14 +3,9 @@ using System;
 
 namespace Xrm
 {
-
-    /// <summary>
-    /// Provides a namespace container for the UI, Context and Data objects
-    /// </summary>
     [Imported]
     public class Page
     {
-        
         /// <summary>
         /// Contains methods to retrieve information about the user interface, in addition to collections for several sub components of the form
         /// </summary>
@@ -26,14 +21,15 @@ namespace Xrm
         /// </summary>
         public static Data Data;
 
+      
+
         [ScriptAlias("GetGlobalContext")]
         public static Context GetGlobalContext()
         {
             return null;
         }
 
-    #region getControl methods
-
+        #region static getControl methods
         /// <summary>
         /// Returns a control where the logical name matches the string
         /// </summary>
@@ -65,13 +61,13 @@ namespace Xrm
         {
             return null;
         }
+        #endregion
+    
 
-    #endregion
-    #region getAttribute methods
-
+        #region static getAttribute methods
         /// <summary>
         /// Returns an attribute object where the attribute name matches the string
-        /// </summary>
+        /// </summary
         public static XrmAttribute GetAttribute(string name)
         {
             return null;
@@ -100,8 +96,62 @@ namespace Xrm
         {
             return null;
         }
+        #endregion
+    
+    }
+    [Imported]
+    [IgnoreNamespace]
+    [ScriptName("window.parent.Xrm.Page")]
+    public class ParentPage
+    {
+        public static UI Ui;
+        public static Context Context;
+        public static Data Data;
 
-    #endregion
+
+
+        [ScriptAlias("GetGlobalContext")]
+        public static Context GetGlobalContext()
+        {
+            return null;
+        }
+
+        #region static getControl methods
+        public static Control GetControl(string name)
+        {
+            return null;
+        }
+
+        public static Control GetControl(int position)
+        {
+            return null;
+        }
+
+        public static Control[] GetControl(GetControlHandler function)
+        {
+            return null;
+        }
+        #endregion
+
+
+        #region static getAttribute methods
+        public static XrmAttribute GetAttribute(string name)
+        {
+            return null;
+        }
+
+        public static XrmAttribute GetAttribute(int position)
+        {
+            return null;
+        }
+
+        public static XrmAttribute[] GetAttribute(GetAttributeHandler function)
+        {
+            return null;
+        }
+        #endregion
 
     }
+
+
 }

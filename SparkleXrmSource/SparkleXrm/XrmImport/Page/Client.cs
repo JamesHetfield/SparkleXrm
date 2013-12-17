@@ -11,7 +11,7 @@ namespace Xrm
     {
 
         /// <summary>
-        /// Returns a value to indicate which client the script is executing in
+        /// CRM2013 Only: Returns a value to indicate which client the script is executing in
         /// </summary>
         /// <returns>
         /// The values returned are:
@@ -24,7 +24,7 @@ namespace Xrm
         { return ClientType.Web; }
 
         /// <summary>
-        /// Returns a value to indicate the state of the client
+        /// CRM2013 Only: Returns a value to indicate the state of the client
         /// </summary>
         /// <returns>
         /// The values returned are:

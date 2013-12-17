@@ -37,9 +37,12 @@ function GetGlobalContext() { return Xrm.Page.context }
 
 
 
-var metadataQueryTests = new  SparkleXrm.UnitTests.MetadataQueryTests();
+var tests = new SparkleXrm.UnitTests.OrganizationServiceProxyTests();
 
-test('MetadataQuery1', function() {
-    //ok(metadataQueryTests.queryAttributeDisplayNamesForTwoEntities());
-    ok(metadataQueryTests.queryAttributeDisplayNamesForTwoEntities());
+// Use the Chutzpah 'Run In Browser' rather than the headless browser
+// This is because the headless browser doesn't support authentication
+
+test('CRUD', function() {
+    ok(tests.crudTests());
 });
+
